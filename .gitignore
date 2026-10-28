@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+# local data — never commit
+cache/
+state.db
+state.db-wal
+state.db-shm
+*.db
+*.sqlite
+household.toml
+.env
+credentials.json
+token*.json
+*client_secret*.json
+secrets.yaml
+*.pem
+logs/
+*.log
+reports/
+downloads/
+mail/
+# real documents (synthetic examples are .txt/.json only)
+*.pdf
+*.docx
+*.doc
