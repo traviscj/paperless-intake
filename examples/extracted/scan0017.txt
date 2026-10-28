@@ -1,0 +1,4 @@
+INITECH, INC.            EARNINGS STATEMENT        Pay date: 2026-04-15
+Employee: Alex Example   Employee ID: 000000
+Mailing address: 99 Oak Ave, Springfield
+Gross pay     5,000.00     Federal withholding  700.00    Net pay  3,612.50

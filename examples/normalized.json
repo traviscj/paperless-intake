@@ -1,0 +1,48 @@
+[
+  {
+    "file": "springfield-water-2026-05.pdf",
+    "normalized": {
+      "disposition": "file",
+      "reason": "Utility bill for an owned rental unit; substantiates an expense.",
+      "confidence": 0.93,
+      "title": "Springfield Water bill - 12 Maple St Unit 2 - May 2026",
+      "created": "2026-05-14",
+      "correspondent": "Springfield Water Department",
+      "document_type": "Utility Bill",
+      "tags": [
+        "alex",
+        "utilities",
+        "prop:12Maple"
+      ],
+      "properties": [
+        "prop:12Maple"
+      ],
+      "tax_year": null,
+      "summary": "Water/sewer/garbage bill, 14 CCF estimated, $128.42 due 2026-06-04."
+    },
+    "custom_fields": {
+      "Entity": "Maple Rentals LLC",
+      "Unit": "2"
+    }
+  },
+  {
+    "file": "scan0017.pdf",
+    "normalized": {
+      "disposition": "file",
+      "reason": "Pay stub.",
+      "confidence": 0.9,
+      "title": "Initech pay stub 2026-04-15",
+      "created": "2026-04-15",
+      "correspondent": "Initech Inc",
+      "document_type": "Statement",
+      "tags": [
+        "alex",
+        "financial"
+      ],
+      "properties": [],
+      "tax_year": null,
+      "summary": "Earnings statement; mailing address is the residence."
+    },
+    "custom_fields": {}
+  }
+]

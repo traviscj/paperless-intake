@@ -1,0 +1,11 @@
+SPRINGFIELD WATER DEPARTMENT                         STATEMENT DATE: 05/14/2026
+PO Box 100, Springfield                              ACCOUNT: 000-00000-0
+
+SERVICE ADDRESS: 12 MAPLE ST UNIT 2, SPRINGFIELD
+BILL TO: MAPLE RENTALS LLC  C/O ALEX EXAMPLE
+
+Billing period 03/10/2026 - 05/10/2026   Meter: 0000000 (estimated read)
+Water usage            14 CCF                                         $61.32
+Sewer                                                                 $48.10
+Garbage                                                               $19.00
+TOTAL DUE BY 06/04/2026                                              $128.42
