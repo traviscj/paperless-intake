@@ -1,0 +1,65 @@
+# Example household config for pintake (fictional). Copy to household.toml
+# (gitignored) and fill in your own. Regexes are TOML literal strings ('...').
+
+# Shown to the model verbatim at the top of every classification prompt.
+context = """
+Household / business context (use it to resolve who and what a document refers to):
+- Alex Example (tag alex) — software engineer at Initech.
+- Sam Example (tag sam) — spouse, co-owner of the real estate.
+- Entities: Example Family Trust; Maple Rentals LLC.
+- Properties they OWN:
+  * 12 Maple St, Springfield    -> property "12Maple" (rental, multi-unit)
+  * 99 Oak Ave, Springfield     -> property "99Oak" (primary residence)
+Documents about OTHER addresses are prospecting/marketing material, not owned-property records.
+"""
+
+# Correspondent names matching this are the household itself / its own
+# entities and are dropped (the correspondent is the OTHER party).
+own_entity_regex = '^(alex|sam)\b|example family trust|^maple rentals'
+
+# Tags never to (re)create, e.g. ones that duplicate a correspondent.
+banned_tags = ["initech inc"]
+
+[[people]]
+name = "Alex"
+tag = "alex"
+guard = '\b(alex|a\.\s*example)\b'   # tag survives only if the text matches
+
+[[people]]
+name = "Sam"
+tag = "sam"
+guard = '\bsam\b'
+
+# bare key shown to the model -> canonical Paperless tag
+[properties]
+"12Maple" = "prop:12Maple"
+"99Oak" = "prop:99Oak"
+
+# optional extra spellings -> canonical tag
+[property_aliases]
+"maple" = "prop:12Maple"
+
+# Optional: the residence whose address is printed on every statement, so the
+# model is told a mailing address is not a property association.
+[residence]
+key = "99Oak"
+who = "Alex and Sam"
+address = "99 Oak Ave"
+
+# canonical property tag -> owning entity (sets the "Entity" custom field)
+[property_entity]
+"prop:12Maple" = "Maple Rentals LLC"
+
+[correspondent_aliases]
+"irs" = "Internal Revenue Service"
+"initech, inc." = "Initech Inc"
+"first example bank, n.a." = "First Example Bank"
+
+[[correspondent_patterns]]
+regex = '^internal revenue'
+name = "Internal Revenue Service"
+
+# Repetitive machine-generated series get the `bulkseries` tag (path regex).
+[bulk_series]
+"pay-stub" = 'pay-stub|payroll-stub'
+"bank-statement" = '/Property/bank/'
