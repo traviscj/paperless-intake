@@ -325,6 +325,10 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
     A file is only moved once its document is confirmed to exist in Paperless
     right now — not merely uploaded, not merely consumed. The state db is
     rewritten to the new location so every other stage keeps working.
+
+    Only files under `source` are touched. A file that was scanned from somewhere else (a statement archive
+    another tool owns, a mounted share) stays exactly where it is: being filed in Paperless is not a reason to
+    take it out of a tree this command was not pointed at.
     """
     con = db.connect()
     dest_root = Path(dest).expanduser().resolve()
@@ -346,7 +350,7 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
         url = d.get("next")
     print(f"archive: {len(live)} documents live in Paperless")
 
-    moved = skipped = missing = already = consuming = 0
+    moved = skipped = missing = already = consuming = elsewhere = 0
     for r in rows:
         src = Path(r["path"])
         # Idempotency: a second run must not re-archive what it already moved.
@@ -368,7 +372,8 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
         try:
             rel = src.relative_to(src_root)
         except ValueError:
-            rel = Path(src.name)
+            elsewhere += 1          # not under --source: not ours to move
+            continue
         sub = "duplicates" if r["status"].startswith("dupe") else ""
         target = _unique_dest(dest_root / sub / rel)
         if dry_run:
@@ -387,6 +392,8 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
     print(f"archive: {moved} moved{' (dry run)' if dry_run else ''}, "
           f"{already} already archived, {skipped} already gone, "
           f"{missing} missing from Paperless"
+          + (f"\n         {elsewhere} filed documents live outside {src_root} and were left where they are "
+             "(archive them with --source <their folder> if that is really wanted)." if elsewhere else "")
           + (f"\n         {consuming} left in place: Paperless is still consuming them. "
              "Run `pintake finalize` until none are pending, then archive again." if consuming else ""))
 

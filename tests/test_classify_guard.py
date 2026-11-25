@@ -73,3 +73,22 @@ def test_go_file_waits_for_paperless_before_archiving(stages, monkeypatch):
     assert slept == [30, 30]
     monkeypatch.setattr(stages, "finalize", lambda: {"done": 0, "pending": 5, "failed": 0})
     assert stages.finalize_wait(minutes=0, sleep=slept.append)["pending"] == 5        # out of time: says so and returns
+
+
+def test_archive_only_moves_files_under_the_source_it_was_pointed_at(stages, tmp_path, monkeypatch):
+    """A statement archive another tool owns was scanned and filed too; archiving Downloads must not empty it."""
+    from pintake import db
+    downloads, bank, dest = tmp_path / "Downloads", tmp_path / "Documents" / "bank" / "chase", tmp_path / "Downloads" / "archived"
+    downloads.mkdir(); bank.mkdir(parents=True)
+    (downloads / "receipt.pdf").write_bytes(b"%PDF a"); (bank / "8558_2026-10-30_Statement.pdf").write_bytes(b"%PDF b")
+    con = db.connect()
+    con.execute("DELETE FROM files")
+    for i, p in enumerate((downloads / "receipt.pdf", bank / "8558_2026-10-30_Statement.pdf")):
+        con.execute("INSERT INTO files (path, name, mtime, status, paperless_id) VALUES (?,?,?,?,?)", (str(p), p.name, 1000, "uploaded", 10 + i))
+    con.commit()
+    monkeypatch.setattr(stages, "get_json", lambda url, headers=None, timeout=120: {"results": [{"id": 10}, {"id": 11}], "next": None})
+    stages.archive(dest=str(dest), source=str(downloads))
+    assert (dest / "receipt.pdf").exists() and not (downloads / "receipt.pdf").exists()
+    assert (bank / "8558_2026-10-30_Statement.pdf").exists() and not (dest / "8558_2026-10-30_Statement.pdf").exists()
+    paths = dict(db.connect().execute("SELECT name, path FROM files"))
+    assert paths["8558_2026-10-30_Statement.pdf"] == str(bank / "8558_2026-10-30_Statement.pdf")
