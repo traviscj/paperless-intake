@@ -23,7 +23,7 @@ The short way is two commands with a look in between:
 
     pintake go            # scan, sync, extract, classify, neardupe, consolidate; prints a summary and stops
     pintake report        # what it decided; `pintake set --to skip|file PATTERN` overrules a call
-    pintake go --file     # upload what is marked 'file', finalize, archive the originals
+    pintake go --file     # upload what is marked 'file', wait for Paperless to consume it, archive the originals
 
 `go` first checks that Paperless answers and that the model can actually load. `classify` does the same, and if
 the model server starts failing mid-run it stops after five failures in a row and leaves those files queued

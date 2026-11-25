@@ -136,13 +136,15 @@ def neardupe(min_chars: int, verbose: bool) -> None:
               help="After the review step: upload everything marked 'file', confirm it was consumed, archive the originals.")
 @click.option("--model", default=None, help=f"Model for classify  [default: {LLM_MODEL}]")
 @click.option("--workers", type=click.IntRange(1, 64), default=2, show_default=True, help="Parallel requests to the model server.")
-def go(directory: str, do_file: bool, model: str | None, workers: int) -> None:
+@click.option("--wait", type=float, default=45, show_default=True,
+              help="With --file: minutes to wait for Paperless to consume the uploads before archiving.")
+def go(directory: str, do_file: bool, model: str | None, workers: int, wait: float) -> None:
     """The whole intake in one command, in two steps with a look in between.
 
     \b
     pintake go            scan, sync, extract, classify, neardupe, consolidate, then a summary and stop
     pintake report ...    look at what it decided; `pintake set --to skip|file PATTERN` to overrule
-    pintake go --file     upload what is marked 'file', finalize, archive the originals
+    pintake go --file     upload what is marked 'file', wait for Paperless to consume it, archive the originals
 
     Before anything is touched it checks that Paperless answers and that the model can actually load, so a
     missing model stops the run with a message instead of failing every file. Every stage only touches rows in
@@ -185,7 +187,9 @@ def go(directory: str, do_file: bool, model: str | None, workers: int) -> None:
                    f"{c.get('decision:skip', 0)} skipped, {c.get('error', 0)} errors), `pintake taxonomy` for new names, then `pintake go --file`.")
         return
     step(1, 3, "upload", stages.upload)
-    step(2, 3, "finalize", stages.finalize)
+    # Paperless consumes at its own pace (OCR, one queue): archiving straight after the upload would find almost
+    # nothing confirmed and leave the originals where they were.
+    step(2, 3, f"finalize (waiting up to {wait:.0f} min for Paperless)", lambda: stages.finalize_wait(minutes=wait))
     step(3, 3, "archive", lambda: stages.archive(dest=str(ARCHIVE_DIR), source=str(Path(directory).expanduser())))
     summary()
 

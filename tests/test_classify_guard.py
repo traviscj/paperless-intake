@@ -62,3 +62,14 @@ def test_a_model_that_will_not_load_stops_before_any_file_is_touched(stages, tmp
     with pytest.raises(clf.LLMUnavailable):
         stages.classify(workers=3)
     assert _status(tmp_path) == {"extracted": 12}
+
+
+def test_go_file_waits_for_paperless_before_archiving(stages, monkeypatch):
+    """Right after an upload nearly everything is still being consumed; archiving then would move almost nothing."""
+    rounds = iter([{"done": 10, "pending": 236, "failed": 0}, {"done": 102, "pending": 134, "failed": 0}, {"done": 134, "pending": 0, "failed": 0}])
+    slept = []
+    monkeypatch.setattr(stages, "finalize", lambda: next(rounds))
+    assert stages.finalize_wait(minutes=45, sleep=slept.append) == {"done": 246, "pending": 0, "failed": 0}
+    assert slept == [30, 30]
+    monkeypatch.setattr(stages, "finalize", lambda: {"done": 0, "pending": 5, "failed": 0})
+    assert stages.finalize_wait(minutes=0, sleep=slept.append)["pending"] == 5        # out of time: says so and returns

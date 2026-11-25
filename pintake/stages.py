@@ -346,7 +346,7 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
         url = d.get("next")
     print(f"archive: {len(live)} documents live in Paperless")
 
-    moved = skipped = missing = already = 0
+    moved = skipped = missing = already = consuming = 0
     for r in rows:
         src = Path(r["path"])
         # Idempotency: a second run must not re-archive what it already moved.
@@ -355,8 +355,11 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
         if dest_root == src.parent or dest_root in src.parents:
             already += 1
             continue
+        if r["status"] == "uploaded" and r["paperless_id"] is None:
+            consuming += 1          # uploaded, but Paperless has not confirmed a document for it yet
+            continue
         if r["status"] == "uploaded" and r["paperless_id"] not in live:
-            print(f"  SKIP (not in Paperless) {r['name'][:60]}")
+            print(f"  SKIP (document {r['paperless_id']} is gone from Paperless) {r['name'][:60]}")
             missing += 1
             continue
         if not src.exists():
@@ -383,7 +386,9 @@ def archive(dest: str, source: str, include_duplicates: bool = False,
     con.commit()
     print(f"archive: {moved} moved{' (dry run)' if dry_run else ''}, "
           f"{already} already archived, {skipped} already gone, "
-          f"{missing} not confirmed in Paperless")
+          f"{missing} missing from Paperless"
+          + (f"\n         {consuming} left in place: Paperless is still consuming them. "
+             "Run `pintake finalize` until none are pending, then archive again." if consuming else ""))
 
 
 # Filenames that carry no information — the scanner's default output, phone
@@ -510,8 +515,10 @@ def _cf_payload(cf_by_name: dict, values: dict) -> list:
     return out
 
 
-def finalize() -> None:
-    """Resolve consume tasks to document ids and set custom field values.
+def finalize() -> dict:
+    """Resolve consume tasks to document ids and set custom field values. Returns
+    {"done", "pending", "failed"}: Paperless consumes in its own time (OCR, a queue), so right after
+    an upload most documents are still pending and a later run picks them up.
 
     `post_document` can only attach custom fields by pk, never with a value, so
     every derived field is written here once the consumer has produced a real
@@ -559,6 +566,27 @@ def finalize() -> None:
                 print(f"  custom-field patch failed for {doc_id}: {e}")
     print(f"  confirmed {done}, custom fields set on {patched}, "
           f"still consuming {pending}, consume failures {failed}")
+    return {"done": done, "pending": pending, "failed": failed}
+
+
+def finalize_wait(minutes: float = 45, every_s: float = 30, sleep=time.sleep) -> dict:
+    """finalize, repeated until Paperless has consumed everything that was uploaded (or `minutes` pass).
+    Stops early if a whole ten minutes go by with nothing new confirmed: the consumer is stuck, not slow."""
+    t0, last_progress, total = time.time(), time.time(), {"done": 0, "pending": 0, "failed": 0}
+    while True:
+        r = finalize()
+        total["done"] += r["done"]; total["failed"] += r["failed"]; total["pending"] = r["pending"]
+        if r["done"] or r["failed"]:
+            last_progress = time.time()
+        if not r["pending"]:
+            return total
+        if time.time() - t0 > minutes * 60:
+            print(f"  gave up waiting after {minutes:.0f} min with {r['pending']} still consuming")
+            return total
+        if time.time() - last_progress > 600:
+            print(f"  nothing consumed in 10 min with {r['pending']} waiting: check Paperless's consumer")
+            return total
+        sleep(every_s)
 
 
 def backfill_fields(dry_run: bool = False, limit: int = 100_000) -> None:
