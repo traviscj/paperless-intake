@@ -19,6 +19,17 @@ Every stage is idempotent and resumable; all state lives in `state.db`
 (sqlite, one row per file). Re-running a stage only touches rows in the
 matching status, so you can stop and restart at any point.
 
+The short way is two commands with a look in between:
+
+    pintake go            # scan, sync, extract, classify, neardupe, consolidate; prints a summary and stops
+    pintake report        # what it decided; `pintake set --to skip|file PATTERN` overrules a call
+    pintake go --file     # upload what is marked 'file', finalize, archive the originals
+
+`go` first checks that Paperless answers and that the model can actually load. `classify` does the same, and if
+the model server starts failing mid-run it stops after five failures in a row and leaves those files queued
+(`RETRY` in the progress lines) instead of marking every one of them `ERR`. `ERR` now means the document itself
+could not be classified; the reason is in `pintake show <name>`.
+
 | stage      | what it does                                                        |
 |------------|---------------------------------------------------------------------|
 | `scan`     | walk a directory, MD5-hash eligible files, record them              |

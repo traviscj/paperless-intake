@@ -179,6 +179,7 @@ def extract_text(workers: int = 6, limit: int = 100_000) -> None:
 
 
 VISION_TEXT_THRESHOLD = 120  # below this, the text model is guessing
+SERVER_DOWN_AFTER = 5        # this many server-side failures in a row stops the run instead of failing every file
 
 
 def _classify_one(tax, row, model, vision=True):
@@ -214,24 +215,52 @@ def classify(workers: int = 3, limit: int = 100_000, model: str | None = None,
         "SELECT * FROM files WHERE status='extracted' ORDER BY mtime DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    print(f"classify: {len(rows)} files, model={model or 'default'}, "
+    if not rows:
+        print("classify: nothing waiting")
+        return
+    using = clf.preflight(model)                 # raises LLMUnavailable with what to do about it
+    print(f"classify: {len(rows)} files, model={' / '.join(using)}, "
           f"{workers} workers")
-    t0, done = time.time(), 0
+    t0, done, down, deferred = time.time(), 0, 0, 0
     with cf.ThreadPoolExecutor(workers) as ex:
         futs = [ex.submit(_classify_one, tax, r, model, vision) for r in rows]
         for fut in cf.as_completed(futs):
+            if fut.cancelled():
+                continue
             path, meta, err = fut.result()
             done += 1
-            if err:
+            if err and clf.infrastructure_error(err):
+                # The server's problem, not the document's: the row stays 'extracted' and the next run retries it.
+                down, deferred = down + 1, deferred + 1
+                if down >= SERVER_DOWN_AFTER:
+                    for f in futs:
+                        f.cancel()
+                    raise clf.LLMUnavailable(
+                        f"the model server failed {down} requests in a row ({err[:200]}). Stopped after {done} of "
+                        f"{len(rows)}; nothing was marked as failed. Re-run classify when it is back.")
+            elif err:
+                down = 0
                 db.touch(con, path, status="error", error=err)
             else:
+                down = 0
                 db.touch(con, path, status="classified",
                          meta_json=json.dumps(meta),
                          decision=meta["disposition"], error=None)
             rate = done / max(time.time() - t0, 1e-9)
             print(f"  {done}/{len(rows)}  {rate * 60:5.1f}/min  "
-                  f"{(meta or {}).get('disposition', 'ERR'):6} "
-                  f"{Path(path).name[:60]}", file=sys.stderr)
+                  f"{(meta or {}).get('disposition', 'RETRY' if err and clf.infrastructure_error(err) else 'ERR'):6} "
+                  f"{Path(path).name[:60]}" + (f"  ({err[:80]})" if err else ""), file=sys.stderr)
+    if deferred:
+        print(f"classify: {deferred} left for the next run (the model server failed on them)")
+
+
+def counts() -> dict:
+    """{status: n} plus {"decision:<x>": n} for classified rows: what `go` prints between stages."""
+    con = db.connect()
+    out = {r["status"]: r["n"] for r in con.execute("SELECT status, count(*) n FROM files GROUP BY status")}
+    for r in con.execute("SELECT coalesce(override, decision) d, count(*) n FROM files WHERE status='classified' GROUP BY 1"):
+        out[f"decision:{r['d']}"] = r["n"]
+    return out
 
 
 def report(disposition: str = "file", limit: int = 500) -> None:

@@ -125,6 +125,42 @@ def build_prompt(tax, filename, mtime_iso, pages, ocr, text):
     )
 
 
+class LLMUnavailable(RuntimeError):
+    """The model server cannot serve this model right now. Nothing about the document."""
+
+
+def preflight(model=None, vision_model=None, url=None) -> list[str]:
+    """Make sure the server has the model(s) and can actually load them, before any document is touched.
+
+    A model that is listed but cannot start (its file was moved or deleted) answers every request with an
+    instant 500, which would otherwise mark every file in the run as failed in a few seconds.
+    """
+    from .config import LLM_VISION_MODEL
+    from .http import get_json
+    base = url or LLM_URL
+    want = list(dict.fromkeys([model or LLM_MODEL, vision_model or model or LLM_VISION_MODEL]))
+    try:
+        have = sorted(m["id"] for m in get_json(f"{base}/models", timeout=15)["data"])
+    except Exception as e:  # noqa: BLE001
+        raise LLMUnavailable(f"model server {base} is not answering: {e}") from e
+    for m in want:
+        if m not in have:
+            raise LLMUnavailable(f"model '{m}' is not on {base}. It has: {', '.join(have)}. "
+                                 "Pick one with --model, or set PINTAKE_LLM_MODEL in .env.")
+        try:    # the first real request is what loads it; a broken model fails here, in seconds
+            post_json(f"{base}/chat/completions", {"model": m, "max_tokens": 1, "messages": [{"role": "user", "content": "ok"}]}, timeout=600)
+        except Exception as e:  # noqa: BLE001
+            raise LLMUnavailable(f"model '{m}' is listed on {base} but will not start: {str(e)[:300]}. "
+                                 "Its files are probably missing on the server. Use another with --model.") from e
+    return want
+
+
+def infrastructure_error(err: str) -> bool:
+    """Is this failure about the server (retry later) rather than about the document (needs a look)?"""
+    e = err or ""
+    return ("-> 5" in e and "POST " in e) or any(k in e for k in ("URLError", "ConnectionError", "ConnectionRefused", "TimeoutError", "timed out", "RemoteDisconnected"))
+
+
 def _strip_think(s: str) -> str:
     return re.sub(r"<think>.*?</think>", "", s, flags=re.S).strip()
 

@@ -108,7 +108,11 @@ def classify_cmd(workers: int, limit: int, model: str | None,
     reuses existing names; the result is then snapped onto the archive's
     conventions by normalize.py before it is stored.
     """
-    stages.classify(workers=workers, limit=limit, model=model, vision=vision)
+    from .classify import LLMUnavailable
+    try:
+        stages.classify(workers=workers, limit=limit, model=model, vision=vision)
+    except LLMUnavailable as e:
+        raise click.ClickException(str(e)) from e
 
 
 @main.command()
@@ -124,6 +128,66 @@ def neardupe(min_chars: int, verbose: bool) -> None:
     collapses distinct transactions.
     """
     stages.neardupe(min_chars=min_chars, verbose=verbose)
+
+
+@main.command()
+@click.argument("directory", default="~/Downloads")
+@click.option("--file", "do_file", is_flag=True,
+              help="After the review step: upload everything marked 'file', confirm it was consumed, archive the originals.")
+@click.option("--model", default=None, help=f"Model for classify  [default: {LLM_MODEL}]")
+@click.option("--workers", type=click.IntRange(1, 64), default=2, show_default=True, help="Parallel requests to the model server.")
+def go(directory: str, do_file: bool, model: str | None, workers: int) -> None:
+    """The whole intake in one command, in two steps with a look in between.
+
+    \b
+    pintake go            scan, sync, extract, classify, neardupe, consolidate, then a summary and stop
+    pintake report ...    look at what it decided; `pintake set --to skip|file PATTERN` to overrule
+    pintake go --file     upload what is marked 'file', finalize, archive the originals
+
+    Before anything is touched it checks that Paperless answers and that the model can actually load, so a
+    missing model stops the run with a message instead of failing every file. Every stage only touches rows in
+    its own state, so after any failure just run the same command again.
+    """
+    from . import classify as clf
+    from . import paperless
+
+    def step(n: int, total: int, name: str, fn) -> None:
+        click.secho(f"── {n}/{total} {name} ──", fg="cyan", err=True)
+        try:
+            fn()
+        except clf.LLMUnavailable as e:
+            raise click.ClickException(f"{name}: {e}") from e
+        except Exception as e:  # noqa: BLE001
+            raise click.ClickException(f"{name} failed: {type(e).__name__}: {e}\nFix that and re-run `pintake go{' --file' if do_file else ''}`; finished stages are skipped.") from e
+
+    def summary() -> None:
+        c = stages.counts()
+        click.echo("  ".join(f"{k} {v}" for k, v in sorted(c.items())))
+
+    try:
+        paperless.taxonomy()
+    except Exception as e:  # noqa: BLE001
+        raise click.ClickException(f"Paperless is not answering ({PAPERLESS_URL}): {e}") from e
+    if not do_file:
+        try:
+            click.echo("model: " + " / ".join(clf.preflight(model)) + " loads")
+        except clf.LLMUnavailable as e:
+            raise click.ClickException(str(e)) from e
+        step(1, 6, f"scan {directory}", lambda: stages.scan(directory))
+        step(2, 6, "sync", stages.sync)
+        step(3, 6, "extract", stages.extract_text)
+        step(4, 6, "classify", lambda: stages.classify(workers=workers, model=model))
+        step(5, 6, "neardupe", stages.neardupe)
+        step(6, 6, "consolidate", stages.consolidate)
+        summary()
+        c = stages.counts()
+        click.echo(f"\nreview: `pintake report` ({c.get('decision:file', 0)} to file, {c.get('decision:review', 0)} to look at, "
+                   f"{c.get('decision:skip', 0)} skipped, {c.get('error', 0)} errors), `pintake taxonomy` for new names, then `pintake go --file`.")
+        return
+    step(1, 3, "upload", stages.upload)
+    step(2, 3, "finalize", stages.finalize)
+    step(3, 3, "archive", lambda: stages.archive(dest=str(ARCHIVE_DIR), source=str(Path(directory).expanduser())))
+    summary()
 
 
 @main.command("backfill-fields")
